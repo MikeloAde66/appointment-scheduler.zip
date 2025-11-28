@@ -1,0 +1,360 @@
+{
+  "name": "Appointment Scheduling Automation v1.0",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "appointment-request",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Appointment Request Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate appointment ID and format data\nconst timestamp = Date.now();\nconst random = Math.floor(Math.random() * 9999).toString().padStart(4, '0');\nconst appointmentId = `APT${timestamp}${random}`;\n\nconst body = $input.item.json.body || $input.item.json;\n\n// Parse and validate datetime\nconst requestedDate = new Date(body.appointmentDate + ' ' + body.appointmentTime);\nif (isNaN(requestedDate.getTime())) {\n  throw new Error('Invalid date or time format');\n}\n\nconst appointment = {\n  appointmentId,\n  patientName: (body.patientName || '').trim(),\n  patientEmail: (body.patientEmail || '').toLowerCase().trim(),\n  patientPhone: (body.patientPhone || '').replace(/\\D/g, ''),\n  appointmentDate: body.appointmentDate,\n  appointmentTime: body.appointmentTime,\n  appointmentDateTime: requestedDate.toISOString(),\n  appointmentType: body.appointmentType || 'General Consultation',\n  notes: body.notes || '',\n  status: 'Pending',\n  createdAt: new Date().toISOString()\n};\n\n// Validation\nif (!appointment.patientName || !appointment.patientEmail || !appointment.patientPhone) {\n  throw new Error('Missing required fields: patientName, patientEmail, and patientPhone');\n}\n\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!emailRegex.test(appointment.patientEmail)) {\n  throw new Error('Invalid email format');\n}\n\nif (appointment.patientPhone.length < 10) {\n  throw new Error('Invalid phone number');\n}\n\nreturn { json: appointment };"
+      },
+      "id": "process-request",
+      "name": "Generate Appointment ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "calendar": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_CALENDAR_ID || 'primary' }}",
+          "mode": "id"
+        },
+        "start": "={{ $json.appointmentDateTime }}",
+        "end": "={{ new Date(new Date($json.appointmentDateTime).getTime() + 60*60*1000).toISOString() }}",
+        "options": {
+          "timeZone": "America/New_York"
+        }
+      },
+      "id": "check-availability",
+      "name": "Check Calendar Availability",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.2,
+      "position": [680, 300],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "GOOGLE_CALENDAR_CREDENTIAL_ID",
+          "name": "Google Calendar OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.items ? $json.items.length : 0 }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-conflicts",
+      "name": "Time Slot Available?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "create",
+        "calendar": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_CALENDAR_ID || 'primary' }}",
+          "mode": "id"
+        },
+        "summary": "={{ $json.patientName }} - {{ $json.appointmentType }}",
+        "start": "={{ $json.appointmentDateTime }}",
+        "end": "={{ new Date(new Date($json.appointmentDateTime).getTime() + 60*60*1000).toISOString() }}",
+        "additionalFields": {
+          "description": "Patient: {{ $json.patientName }}\\nPhone: {{ $json.patientPhone }}\\nEmail: {{ $json.patientEmail }}\\nAppointment ID: {{ $json.appointmentId }}\\nNotes: {{ $json.notes }}",
+          "sendUpdates": "all"
+        }
+      },
+      "id": "create-event",
+      "name": "Create Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.2,
+      "position": [1120, 200],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "GOOGLE_CALENDAR_CREDENTIAL_ID",
+          "name": "Google Calendar OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sendTo": "={{ $json.patientEmail }}",
+        "subject": "Appointment Confirmed - {{ $json.appointmentDate }} at {{ $json.appointmentTime }}",
+        "emailType": "html",
+        "message": "=<!DOCTYPE html>\n<html>\n<head>\n<style>\nbody { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n.container { max-width: 600px; margin: 0 auto; padding: 20px; }\n.header { background: #10b981; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }\n.content { padding: 30px; background: #f9fafb; border: 1px solid #e5e7eb; }\n.appointment-details { background: white; padding: 20px; margin: 20px 0; border-left: 4px solid #10b981; border-radius: 4px; }\n.detail-row { margin: 10px 0; }\n.label { font-weight: 600; color: #6b7280; }\n.value { color: #111827; }\n.important { background: #fef3c7; padding: 15px; border-left: 4px solid #f59e0b; margin: 20px 0; }\n.footer { text-align: center; padding: 20px; color: #6b7280; font-size: 12px; }\n</style>\n</head>\n<body>\n<div class=\"container\">\n<div class=\"header\">\n<h1>✓ Appointment Confirmed</h1>\n</div>\n<div class=\"content\">\n<p>Dear {{ $json.patientName }},</p>\n<p>Your appointment has been successfully scheduled and added to our calendar.</p>\n<div class=\"appointment-details\">\n<h3 style=\"margin-top:0; color:#10b981;\">Appointment Details</h3>\n<div class=\"detail-row\"><span class=\"label\">Confirmation #:</span> <span class=\"value\">{{ $json.appointmentId }}</span></div>\n<div class=\"detail-row\"><span class=\"label\">Date:</span> <span class=\"value\">{{ $json.appointmentDate }}</span></div>\n<div class=\"detail-row\"><span class=\"label\">Time:</span> <span class=\"value\">{{ $json.appointmentTime }}</span></div>\n<div class=\"detail-row\"><span class=\"label\">Type:</span> <span class=\"value\">{{ $json.appointmentType }}</span></div>\n</div>\n<div class=\"important\">\n<strong>⏰ Reminder:</strong> Please arrive 15 minutes early to complete any necessary paperwork.\n</div>\n<p><strong>What to Bring:</strong></p>\n<ul>\n<li>Valid photo ID</li>\n<li>Insurance card</li>\n<li>List of current medications</li>\n<li>Any relevant medical records</li>\n</ul>\n<p>If you need to reschedule or cancel, please contact us at least 24 hours in advance.</p>\n</div>\n<div class=\"footer\">\n<p>This is an automated confirmation. Please do not reply to this email.</p>\n<p>&copy; 2025 Your Practice. All rights reserved.</p>\n</div>\n</div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-confirmation-email",
+      "name": "Send Confirmation Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1340, 200],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CREDENTIAL_ID",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $env.TWILIO_ENABLED }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-sms",
+      "name": "SMS Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "fromPhoneNumber": "={{ $env.TWILIO_PHONE_NUMBER }}",
+        "toPhoneNumber": "=+1{{ $json.patientPhone }}",
+        "message": "=Appointment confirmed!\\n\\nDate: {{ $json.appointmentDate }}\\nTime: {{ $json.appointmentTime }}\\nConfirmation: {{ $json.appointmentId }}\\n\\nPlease arrive 15 min early. Reply CANCEL to reschedule.",
+        "options": {}
+      },
+      "id": "send-sms",
+      "name": "Send SMS via Twilio",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1.2,
+      "position": [1780, 80],
+      "credentials": {
+        "twilioApi": {
+          "id": "TWILIO_CREDENTIAL_ID",
+          "name": "Twilio API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": true,\n  \"message\": \"Appointment confirmed\",\n  \"appointmentId\": $json.appointmentId,\n  \"date\": $json.appointmentDate,\n  \"time\": $json.appointmentTime\n} }}",
+        "options": {}
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sendTo": "={{ $json.patientEmail }}",
+        "subject": "Appointment Request - Time Slot Unavailable",
+        "emailType": "html",
+        "message": "=<!DOCTYPE html>\n<html>\n<head>\n<style>\nbody { font-family: Arial, sans-serif; color: #333; }\n.container { max-width: 600px; margin: 0 auto; padding: 20px; }\n.header { background: #ef4444; color: white; padding: 20px; text-align: center; }\n.content { padding: 20px; background: #fee; border: 1px solid #ef4444; }\n</style>\n</head>\n<body>\n<div class=\"container\">\n<div class=\"header\"><h2>Time Slot Unavailable</h2></div>\n<div class=\"content\">\n<p>Dear {{ $json.patientName }},</p>\n<p>Unfortunately, the requested time slot on <strong>{{ $json.appointmentDate }} at {{ $json.appointmentTime }}</strong> is no longer available.</p>\n<p>Please visit our booking page to select an alternative time, or contact us directly.</p>\n<p>We apologize for any inconvenience.</p>\n</div>\n</div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "conflict-email",
+      "name": "Send Conflict Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1120, 420],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CREDENTIAL_ID",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 409,
+        "responseBody": "={{ {\n  \"success\": false,\n  \"message\": \"Time slot unavailable\",\n  \"requestedDate\": $json.appointmentDate,\n  \"requestedTime\": $json.appointmentTime\n} }}",
+        "options": {}
+      },
+      "id": "conflict-response",
+      "name": "Conflict Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1340, 420]
+    }
+  ],
+  "connections": {
+    "Appointment Request Webhook": {
+      "main": [
+        [
+          {
+            "node": "Generate Appointment ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Appointment ID": {
+      "main": [
+        [
+          {
+            "node": "Check Calendar Availability",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Calendar Availability": {
+      "main": [
+        [
+          {
+            "node": "Time Slot Available?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Time Slot Available?": {
+      "main": [
+        [
+          {
+            "node": "Create Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Conflict Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Calendar Event": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Confirmation Email": {
+      "main": [
+        [
+          {
+            "node": "SMS Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SMS Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Send SMS via Twilio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send SMS via Twilio": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Conflict Email": {
+      "main": [
+        [
+          {
+            "node": "Conflict Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2025-11-03T00:00:00.000Z",
+      "updatedAt": "2025-11-03T00:00:00.000Z",
+      "id": "1",
+      "name": "healthcare"
+    },
+    {
+      "createdAt": "2025-11-03T00:00:00.000Z",
+      "updatedAt": "2025-11-03T00:00:00.000Z",
+      "id": "2",
+      "name": "scheduling"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-11-03T00:00:00.000Z",
+  "versionId": "1"
+}

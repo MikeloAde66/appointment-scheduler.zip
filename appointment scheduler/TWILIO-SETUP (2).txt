@@ -1,0 +1,278 @@
+TWILIO SMS SETUP GUIDE
+Step-by-Step Instructions
+
+═══════════════════════════════════════════════════════
+
+PART 1: CREATE TWILIO ACCOUNT
+
+1. Go to: https://www.twilio.com/try-twilio
+
+2. Click "Sign up and start building"
+
+3. Fill out registration:
+   - First Name
+   - Last Name
+   - Email
+   - Password
+   
+4. Verify your email address
+
+5. Verify your phone number (SMS code)
+
+6. You'll get $15 FREE CREDIT to test
+
+═══════════════════════════════════════════════════════
+
+PART 2: GET YOUR PHONE NUMBER
+
+1. After login, Twilio will ask: "What do you want to do?"
+   Select: "Send an SMS"
+
+2. Click "Get a Twilio phone number"
+
+3. Twilio will assign you a number automatically
+   Example: +1 (555) 123-4567
+   
+4. Click "Choose this number"
+
+5. SAVE THIS NUMBER - you'll need it for n8n
+
+Cost: $1/month (billed after free trial ends)
+
+═══════════════════════════════════════════════════════
+
+PART 3: GET YOUR CREDENTIALS
+
+1. Go to Twilio Console: https://console.twilio.com
+
+2. Look for "Account Info" section (right side)
+
+3. Copy these 3 items:
+
+   ┌─────────────────────────────────────┐
+   │ Account SID                          │
+   │ ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx   │
+   └─────────────────────────────────────┘
+   
+   ┌─────────────────────────────────────┐
+   │ Auth Token (click to reveal)         │
+   │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx     │
+   └─────────────────────────────────────┘
+   
+   ┌─────────────────────────────────────┐
+   │ My Twilio phone number               │
+   │ +1 555 123 4567                      │
+   └─────────────────────────────────────┘
+
+4. KEEP THESE SECRET - don't share them
+
+═══════════════════════════════════════════════════════
+
+PART 4: CONFIGURE N8N
+
+**Method 1: HTTP Header Auth (Recommended)**
+
+1. In n8n, go to Credentials → Create New
+
+2. Select "HTTP Header Auth"
+
+3. Fill in:
+   Name: Twilio Auth
+   Header Name: Authorization
+   Header Value: Basic [BASE64_STRING]
+
+4. To create BASE64_STRING:
+
+   **On Mac/Linux:**
+   ```
+   echo -n "YOUR_ACCOUNT_SID:YOUR_AUTH_TOKEN" | base64
+   ```
+   
+   **On Windows (PowerShell):**
+   ```
+   [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("YOUR_ACCOUNT_SID:YOUR_AUTH_TOKEN"))
+   ```
+   
+   **Example:**
+   If Account SID = AC1234
+   And Auth Token = abc5678
+   
+   Then run:
+   ```
+   echo -n "AC1234:abc5678" | base64
+   ```
+   
+   Output: QUMxMjM0OmFiYzU2Nzg=
+   
+   Your Header Value becomes: Basic QUMxMjM0OmFiYzU2Nzg=
+
+5. Save credential
+
+**Environment Variables:**
+
+1. In n8n, go to Settings → Variables
+
+2. Add these variables:
+
+   TWILIO_ACCOUNT_SID = AC1234... (your Account SID)
+   TWILIO_PHONE_NUMBER = +15551234567 (your Twilio number)
+
+═══════════════════════════════════════════════════════
+
+PART 5: TEST SMS SENDING
+
+**IMPORTANT: Trial Account Limitations**
+
+Twilio free trial can ONLY send to:
+- Your verified phone number
+- Phone numbers you manually verify
+
+To verify a phone number:
+1. Go to: https://console.twilio.com/us1/develop/phone-numbers/manage/verified
+2. Click "Add a new number"
+3. Enter phone number → Verify with SMS code
+
+**To Remove Limitations:**
+
+Upgrade your account (no minimum spend):
+1. Go to: https://console.twilio.com/billing
+2. Click "Upgrade your account"
+3. Add payment method (credit card)
+4. No charges until you use more than $15 credit
+
+After upgrade, you can send to ANY number.
+
+═══════════════════════════════════════════════════════
+
+PART 6: TEST IN N8N
+
+1. In your workflow, find "Send SMS Confirmation" node
+
+2. Click "Execute Node" (play button)
+
+3. Manually enter test data:
+   ```json
+   {
+     "patientPhone": "5551234567",
+     "appointmentDate": "2025-11-10",
+     "appointmentTime": "2:00 PM",
+     "appointmentType": "Check-up",
+     "appointmentId": "APT123"
+   }
+   ```
+
+4. Click "Execute Node"
+
+5. Check your phone for SMS
+
+**If SMS doesn't arrive:**
+- Check phone number is verified (trial account)
+- Verify credentials are correct
+- Check Twilio logs: https://console.twilio.com/us1/monitor/logs/sms
+
+═══════════════════════════════════════════════════════
+
+PRICING BREAKDOWN
+
+**Phone Number:**
+$1.00/month
+
+**SMS Sent (US):**
+$0.0075 per message
+
+**SMS Received (US):**
+$0.0079 per message
+
+**Example Costs:**
+
+100 appointments/month:
+- 100 confirmation SMS = $0.75
+- 100 reminder SMS = $0.75
+- Phone number = $1.00
+Total: $2.50/month
+
+500 appointments/month:
+- 500 confirmation SMS = $3.75
+- 500 reminder SMS = $3.75
+- Phone number = $1.00
+Total: $8.50/month
+
+═══════════════════════════════════════════════════════
+
+INTERNATIONAL SMS
+
+Twilio supports SMS in 200+ countries
+
+**To send international:**
+1. Change phone format in workflow
+   From: +1{{ $json.patientPhone }}
+   To: +{{ $json.countryCode }}{{ $json.patientPhone }}
+
+2. Pricing varies by country:
+   - Canada: $0.0075 (same as US)
+   - UK: $0.0490
+   - Australia: $0.0500
+   
+Full pricing: https://www.twilio.com/en-us/sms/pricing
+
+═══════════════════════════════════════════════════════
+
+HIPAA COMPLIANCE
+
+**For HIPAA-compliant SMS:**
+
+Twilio's free/trial tier is NOT HIPAA-compliant.
+
+To be compliant:
+1. Upgrade to Business or Enterprise plan
+2. Sign Business Associate Agreement (BAA) with Twilio
+3. Enable end-to-end encryption
+4. Cost: Minimum $3,000/year
+
+**Alternative for free tier:**
+Send generic reminders without PHI:
+"You have an appointment tomorrow. Call us for details."
+
+═══════════════════════════════════════════════════════
+
+TROUBLESHOOTING
+
+**Error: "Unable to create record"**
+→ Check Account SID and Auth Token are correct
+→ Verify base64 encoding is correct
+
+**Error: "Phone number not verified"**
+→ Trial account - verify recipient number in Twilio console
+→ Or upgrade account to remove restriction
+
+**Error: "Invalid 'To' phone number"**
+→ Check format: +1XXXXXXXXXX (no spaces/dashes)
+→ Must be 10 digits for US numbers
+
+**SMS not delivered:**
+→ Check Twilio logs for delivery status
+→ Some carriers block automated SMS
+→ Recipient may have opted out
+
+**Need Help?**
+
+Twilio Support: https://support.twilio.com
+Twilio Docs: https://www.twilio.com/docs/sms
+
+ProtoLabs Support: support@protoautomations.com
+
+═══════════════════════════════════════════════════════
+
+QUICK REFERENCE
+
+Account SID: AC________________
+Auth Token: __________________
+Phone Number: +1______________
+
+Base64 Auth String: Basic _____________________
+
+n8n Environment Variables:
+- TWILIO_ACCOUNT_SID
+- TWILIO_PHONE_NUMBER
+
+═══════════════════════════════════════════════════════
